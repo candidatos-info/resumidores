@@ -21,3 +21,12 @@ func listFilesRecursively(folder string) ([]string, error) {
 		})
 	return files, err
 }
+
+func main() {
+	files, err := listFilesRecursively(os.Args[1])
+	if err != nil {
+		fmt.Println(err)
+	} else {
+		fmt.Println(files)
+	}
+}
