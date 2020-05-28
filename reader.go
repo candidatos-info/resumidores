@@ -21,3 +21,4 @@ func listFilesRecursively(folder string) ([]string, error) {
 		})
 	return files, err
 }
+
