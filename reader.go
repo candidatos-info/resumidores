@@ -6,8 +6,9 @@ import (
 	"path/filepath"
 )
 
-func listFilesRecursively(folder string) (files []string, err error) {
-	err = filepath.Walk(folder,
+func listFilesRecursively(folder string) ([]string, error) {
+	var files []string
+	err := filepath.Walk(folder,
 		func(path string, info os.FileInfo, err error) error {
 			if err != nil {
 				return fmt.Errorf("Erro iterando no arquivo \"%s\". Diretório base \"%s\". Erro: %q", path, folder, err)
