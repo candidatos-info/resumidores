@@ -62,99 +62,130 @@ func main() {
 	if *goodleDriveOAuthTokenFile == "" {
 		log.Fatal("informe o path para o arquivo de token OAuth do Google Drive")
 	}
+	// Creating datastore client
 	datastoreClient, err := datastore.NewClient(context.Background(), *projectID)
 	if err != nil {
 		log.Fatalf("falha ao criar cliente de datastore: %v", err)
 	}
-	b, err := ioutil.ReadFile(*googleDriveCredentialsFile)
+	// Creating Google Drive client
+	googleDriveService, err := createGoogleDriveClient(*googleDriveCredentialsFile, *goodleDriveOAuthTokenFile)
 	if err != nil {
-		log.Fatalf("falha ao ler arquivo de crendenciais [%s], erro %q", *googleDriveCredentialsFile, err)
+		log.Fatalf("falha ao criar cliente do Google Drive, erro %q", err)
 	}
-	config, err := google.ConfigFromJSON(b, drive.DriveScope)
-	if err != nil {
-		log.Fatalf("falha ao processar configuraçōes usando o arquivo [%s], erro %q", *googleDriveCredentialsFile, err)
-	}
-	f, err := os.Open(*goodleDriveOAuthTokenFile)
-	if err != nil {
-		log.Fatalf("falha ao abrir arquivo de token oauth [%s], erro %q", *goodleDriveOAuthTokenFile, err)
-	}
-	defer f.Close()
-	tok := &oauth2.Token{}
-	if err = json.NewDecoder(f).Decode(tok); err != nil {
-		log.Fatalf("falha ao fazer bind do token OAuth, erro %q", err)
-	}
-	googleDriveService, err := drive.New(config.Client(context.Background(), tok))
-	if err != nil {
-		log.Fatalf("não foi possível criar Google Drive service, erro %q", err)
-	}
-	if err := resume(*source, *state, datastoreClient, googleDriveService); err != nil {
+	if err := summarize(*source, *state, datastoreClient, googleDriveService); err != nil {
 		log.Fatalf("falha ao executar processamento do resumidor do banco, erro %q", err)
 	}
 }
 
-func resume(source, state string, datastoreClient *datastore.Client, googleDriveService *drive.Service) error {
+func createGoogleDriveClient(googleDriveCredentialsFile, goodleDriveOAuthTokenFile string) (*drive.Service, error) {
+	b, err := ioutil.ReadFile(googleDriveCredentialsFile)
+	if err != nil {
+		log.Fatalf("falha ao ler arquivo de crendenciais [%s], erro %q", googleDriveCredentialsFile, err)
+	}
+	config, err := google.ConfigFromJSON(b, drive.DriveScope)
+	if err != nil {
+		return nil, fmt.Errorf("falha ao processar configuraçōes usando o arquivo [%s], erro %q", googleDriveCredentialsFile, err)
+	}
+	f, err := os.Open(goodleDriveOAuthTokenFile)
+	if err != nil {
+		return nil, fmt.Errorf("falha ao abrir arquivo de token oauth [%s], erro %q", goodleDriveOAuthTokenFile, err)
+	}
+	defer f.Close()
+	tok := &oauth2.Token{}
+	if err = json.NewDecoder(f).Decode(tok); err != nil {
+		return nil, fmt.Errorf("falha ao fazer bind do token OAuth, erro %q", err)
+	}
+	googleDriveService, err := drive.New(config.Client(context.Background(), tok))
+	if err != nil {
+		return nil, fmt.Errorf("não foi possível criar Google Drive service, erro %q", err)
+	}
+	return googleDriveService, nil
+}
+
+func summarize(source, state string, datastoreClient *datastore.Client, googleDriveService *drive.Service) error {
 	query := fmt.Sprintf("name contains '%s' and '%s' in parents", state, source) // pegando os arquivos com prefixo 'estado' da pasta de id 'source'
 	fileList, err := googleDriveService.Files.List().Q(query).Do()
 	if err != nil {
 		return fmt.Errorf("falha ao buscar arquivos do estado [%s] no diretório [%s], erro %q", state, source, err)
 	}
-	cands := make(map[string]*gDriveCandFiles)
+	candFiles := getCandidateFiles(fileList)
+	dbItems, err := getDBItems(candFiles, googleDriveService)
+	if err != nil {
+		return fmt.Errorf("falha ao gerar itens do banco, erro %q", err)
+	}
+	for _, c := range dbItems {
+		userKey := datastore.NameKey(candidaturesCollection, fmt.Sprintf("%s_%s", c.State, c.City), nil)
+		if _, err := datastoreClient.Put(context.Background(), userKey, c); err != nil {
+			return fmt.Errorf("falha ao salvar cidade [%s] do estado [%s] no banco, erro %q", c.City, c.State, err)
+		}
+		log.Printf("saved city [%s] of state [%s]", c.City, c.State)
+	}
+	return nil
+}
+
+func getCandidateFiles(fileList *drive.FileList) map[string]*gDriveCandFiles {
+	candFiles := make(map[string]*gDriveCandFiles)
 	for _, item := range fileList.Files {
 		sequencialID := re.FindAllString(item.Name, -1)[0]
 		switch filepath.Ext(item.Name) {
 		case ".pb":
-			found := cands[sequencialID]
+			found := candFiles[sequencialID]
 			if found == nil {
-				cands[sequencialID] = &gDriveCandFiles{
+				candFiles[sequencialID] = &gDriveCandFiles{
 					candidatureFile: item,
 				}
 			} else {
 				found.candidatureFile = item
 			}
-		default:
-			found := cands[sequencialID]
+		case ".jpg":
+			found := candFiles[sequencialID]
 			if found == nil {
-				cands[sequencialID] = &gDriveCandFiles{
+				candFiles[sequencialID] = &gDriveCandFiles{
 					picture: item,
 				}
 			} else {
 				found.picture = item
 			}
+		default:
+			log.Printf("file [%s] has unknown extension\n", item.Name)
 		}
 	}
-	cities := make(map[string]*votingCity)
-	for _, c := range cands {
-		response, err := googleDriveService.Files.Get(c.candidatureFile.Id).Download()
+	return candFiles
+}
+
+func getDBItems(candFiles map[string]*gDriveCandFiles, googleDriveService *drive.Service) (map[string]*votingCity, error) {
+	dbItems := make(map[string]*votingCity)
+	for _, c := range candFiles {
+		content, err := func() ([]byte, error) {
+			response, err := googleDriveService.Files.Get(c.candidatureFile.Id).Download()
+			if err != nil {
+				return nil, fmt.Errorf("falha ao pegar bytes de arquivo de candidatura, erro %q", err)
+			}
+			defer response.Body.Close()
+			b, err := ioutil.ReadAll(response.Body)
+			if err != nil {
+				return nil, fmt.Errorf("falha ao ler bytes de arquivo de candidatura, erro %q", err)
+			}
+			return b, nil
+		}()
 		if err != nil {
-			return fmt.Errorf("falha ao pegar bytes de arquivo de candidatura, erro %q", err)
+			return nil, err
 		}
-		defer response.Body.Close()
 		time.Sleep(time.Second * 1) // esse delay é colocado para evitar atingir o limite de requests por segundo. Preste atenção ao tamanho do arquivo que irá enviar.
-		b, err := ioutil.ReadAll(response.Body)
-		if err != nil {
-			return fmt.Errorf("falha ao ler bytes de arquivo de candidatura, erro %q", err)
-		}
 		var candidature descritor.Candidatura
-		if err = proto.Unmarshal(b, &candidature); err != nil {
-			return fmt.Errorf("falha ao deserializar bytes de arquivo de candidatura para struct descritor.Candidatura, erro %q", err)
+		if err = proto.Unmarshal(content, &candidature); err != nil {
+			return nil, fmt.Errorf("falha ao deserializar bytes de arquivo de candidatura para struct descritor.Candidatura, erro %q", err)
 		}
-		//TODO add Picture URL to struct (OBS: waiting PR merging)
-		if cities[candidature.Municipio] == nil {
-			cities[candidature.Municipio] = &votingCity{
+		//TODO add Picture URL to struct
+		if dbItems[candidature.Municipio] == nil {
+			dbItems[candidature.Municipio] = &votingCity{
 				City:       candidature.Municipio,
 				State:      candidature.UF,
 				Candidates: []*descritor.Candidatura{&candidature},
 			}
 		} else {
-			cities[candidature.Municipio].Candidates = append(cities[candidature.Municipio].Candidates, &candidature)
+			dbItems[candidature.Municipio].Candidates = append(dbItems[candidature.Municipio].Candidates, &candidature)
 		}
 	}
-	for _, c := range cities {
-		userKey := datastore.NameKey(candidaturesCollection, fmt.Sprintf("%s_%s", c.State, c.City), nil)
-		if _, err := datastoreClient.Put(context.Background(), userKey, c); err != nil {
-			return fmt.Errorf("falha ao salvar cidade [%s] do estado [%s] no banco, erro %q", c.City, c.State, err)
-		}
-		log.Printf("saved city [%s] of states [%s]", c.City, c.State)
-	}
-	return nil
+	return dbItems, nil
 }
