@@ -123,29 +123,15 @@ func summarize(source, state string, datastoreClient *datastore.Client, googleDr
 	return nil
 }
 
-func getCandidateFiles(fileList *drive.FileList) map[string]*gDriveCandFiles {
-	candFiles := make(map[string]*gDriveCandFiles)
+func getCandidateFiles(fileList *drive.FileList) map[string]gDriveCandFiles {
+	candFiles := make(map[string]gDriveCandFiles)
 	for _, item := range fileList.Files {
 		sequencialID := re.FindAllString(item.Name, -1)[0]
 		switch filepath.Ext(item.Name) {
 		case ".pb":
-			found := candFiles[sequencialID]
-			if found == nil {
-				candFiles[sequencialID] = &gDriveCandFiles{
-					candidatureFile: item,
-				}
-			} else {
-				found.candidatureFile = item
-			}
+			candFiles[sequencialID].picture = item // ISSUE CODE!
 		case ".jpg":
-			found := candFiles[sequencialID]
-			if found == nil {
-				candFiles[sequencialID] = &gDriveCandFiles{
-					picture: item,
-				}
-			} else {
-				found.picture = item
-			}
+			candFiles[sequencialID].picture = item // ISSUE CODE!
 		default:
 			log.Printf("file [%s] has unknown extension\n", item.Name)
 		}
@@ -153,7 +139,7 @@ func getCandidateFiles(fileList *drive.FileList) map[string]*gDriveCandFiles {
 	return candFiles
 }
 
-func getDBItems(candFiles map[string]*gDriveCandFiles, googleDriveService *drive.Service) (map[string]*votingCity, error) {
+func getDBItems(candFiles map[string]gDriveCandFiles, googleDriveService *drive.Service) (map[string]*votingCity, error) {
 	dbItems := make(map[string]*votingCity)
 	for _, c := range candFiles {
 		content, err := func() ([]byte, error) {
