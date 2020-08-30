@@ -129,9 +129,11 @@ func getCandidateFiles(fileList *drive.FileList) map[string]gDriveCandFiles {
 		sequencialID := re.FindAllString(item.Name, -1)[0]
 		switch filepath.Ext(item.Name) {
 		case ".pb":
-			candFiles[sequencialID].picture = item // ISSUE CODE!
+			c := candFiles[sequencialID]
+			c.candidatureFile = item
 		case ".jpg":
-			candFiles[sequencialID].picture = item // ISSUE CODE!
+			c := candFiles[sequencialID]
+			c.picture = item
 		default:
 			log.Printf("file [%s] has unknown extension\n", item.Name)
 		}
