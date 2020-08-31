@@ -118,7 +118,7 @@ func summarize(source, state string, datastoreClient *datastore.Client, googleDr
 		if _, err := datastoreClient.Put(context.Background(), userKey, c); err != nil {
 			return fmt.Errorf("falha ao salvar cidade [%s] do estado [%s] no banco, erro %q", c.City, c.State, err)
 		}
-		log.Printf("saved city [%s] of state [%s]", c.City, c.State)
+		log.Printf("saved city [%s] of state [%s]\n", c.City, c.State)
 	}
 	return nil
 }
@@ -129,11 +129,25 @@ func getCandidateFiles(fileList *drive.FileList) map[string]gDriveCandFiles {
 		sequencialID := re.FindAllString(item.Name, -1)[0]
 		switch filepath.Ext(item.Name) {
 		case ".pb":
-			c := candFiles[sequencialID]
-			c.candidatureFile = item
+			c, ok := candFiles[sequencialID]
+			if !ok {
+				candFiles[sequencialID] = gDriveCandFiles{
+					candidatureFile: item,
+				}
+			} else {
+				c.candidatureFile = item
+				candFiles[sequencialID] = c
+			}
 		case ".jpg":
-			c := candFiles[sequencialID]
-			c.picture = item
+			c, ok := candFiles[sequencialID]
+			if !ok {
+				candFiles[sequencialID] = gDriveCandFiles{
+					picture: item,
+				}
+			} else {
+				c.picture = item
+				candFiles[sequencialID] = c
+			}
 		default:
 			log.Printf("file [%s] has unknown extension\n", item.Name)
 		}
@@ -164,7 +178,9 @@ func getDBItems(candFiles map[string]gDriveCandFiles, googleDriveService *drive.
 		if err = proto.Unmarshal(content, &candidature); err != nil {
 			return nil, fmt.Errorf("falha ao deserializar bytes de arquivo de candidatura para struct descritor.Candidatura, erro %q", err)
 		}
-		//TODO add Picture URL to struct
+		if c.picture != nil { // se candidato tiver foto
+			candidature.Candidato.PhotoURL = fmt.Sprintf("https://drive.google.com/uc?id=%s&export=download", c.picture.Id)
+		}
 		if dbItems[candidature.Municipio] == nil {
 			dbItems[candidature.Municipio] = &votingCity{
 				City:       candidature.Municipio,
