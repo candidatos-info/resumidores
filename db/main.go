@@ -104,11 +104,26 @@ func createGoogleDriveClient(googleDriveCredentialsFile, goodleDriveOAuthTokenFi
 
 func summarize(source, state string, datastoreClient *datastore.Client, googleDriveService *drive.Service) error {
 	query := fmt.Sprintf("name contains '%s' and '%s' in parents", state, source) // pegando os arquivos com prefixo 'estado' da pasta de id 'source'
-	fileList, err := googleDriveService.Files.List().Q(query).Do()
-	if err != nil {
-		return fmt.Errorf("falha ao buscar arquivos do estado [%s] no diretório [%s], erro %q", state, source, err)
+	var result *drive.FileList
+	var setToResolve []*drive.File
+	var err error
+	for {
+		if result != nil && result.NextPageToken == "" {
+			break
+		}
+		listRequest := googleDriveService.Files.List().Q(query) //.Do()
+		listRequest.PageSize(1000)
+		listRequest.Fields("nextPageToken, files(id, name)")
+		if result != nil {
+			listRequest.PageToken(result.NextPageToken)
+		}
+		result, err = listRequest.Do()
+		if err != nil {
+			return fmt.Errorf("falha ao buscar arquivos do estado [%s] no diretório [%s], erro %q", state, source, err)
+		}
+		setToResolve = append(setToResolve, result.Files...)
 	}
-	candFiles := getCandidateFiles(fileList)
+	candFiles := getCandidateFiles(setToResolve)
 	dbItems, err := getDBItems(candFiles, googleDriveService)
 	if err != nil {
 		return fmt.Errorf("falha ao gerar itens do banco, erro %q", err)
@@ -123,9 +138,9 @@ func summarize(source, state string, datastoreClient *datastore.Client, googleDr
 	return nil
 }
 
-func getCandidateFiles(fileList *drive.FileList) map[string]gDriveCandFiles {
+func getCandidateFiles(fileList []*drive.File) map[string]gDriveCandFiles {
 	candFiles := make(map[string]gDriveCandFiles)
-	for _, item := range fileList.Files {
+	for _, item := range fileList {
 		sequencialID := re.FindAllString(item.Name, -1)[0]
 		switch filepath.Ext(item.Name) {
 		case ".pb":
@@ -156,39 +171,43 @@ func getCandidateFiles(fileList *drive.FileList) map[string]gDriveCandFiles {
 }
 
 func getDBItems(candFiles map[string]gDriveCandFiles, googleDriveService *drive.Service) (map[string]*votingCity, error) {
+	log.Printf("files to retrieve protocol buffers: %d\n", len(candFiles))
 	dbItems := make(map[string]*votingCity)
 	for _, c := range candFiles {
-		content, err := func() ([]byte, error) {
-			response, err := googleDriveService.Files.Get(c.candidatureFile.Id).Download()
+		if c.candidatureFile != nil {
+			content, err := func() ([]byte, error) {
+				response, err := googleDriveService.Files.Get(c.candidatureFile.Id).Download()
+				if err != nil {
+					return nil, fmt.Errorf("falha ao pegar bytes de arquivo de candidatura, erro %q", err)
+				}
+				defer response.Body.Close()
+				b, err := ioutil.ReadAll(response.Body)
+				if err != nil {
+					return nil, fmt.Errorf("falha ao ler bytes de arquivo de candidatura, erro %q", err)
+				}
+				return b, nil
+			}()
 			if err != nil {
-				return nil, fmt.Errorf("falha ao pegar bytes de arquivo de candidatura, erro %q", err)
+				return nil, err
 			}
-			defer response.Body.Close()
-			b, err := ioutil.ReadAll(response.Body)
-			if err != nil {
-				return nil, fmt.Errorf("falha ao ler bytes de arquivo de candidatura, erro %q", err)
+			log.Printf("downloaded protocol buffer for file [%s]\n", c.candidatureFile.Name)
+			time.Sleep(time.Second * 1) // esse delay é colocado para evitar atingir o limite de requests por segundo. Preste atenção ao tamanho do arquivo que irá enviar.
+			var candidature descritor.Candidatura
+			if err = proto.Unmarshal(content, &candidature); err != nil {
+				return nil, fmt.Errorf("falha ao deserializar bytes de arquivo de candidatura para struct descritor.Candidatura, erro %q", err)
 			}
-			return b, nil
-		}()
-		if err != nil {
-			return nil, err
-		}
-		time.Sleep(time.Second * 1) // esse delay é colocado para evitar atingir o limite de requests por segundo. Preste atenção ao tamanho do arquivo que irá enviar.
-		var candidature descritor.Candidatura
-		if err = proto.Unmarshal(content, &candidature); err != nil {
-			return nil, fmt.Errorf("falha ao deserializar bytes de arquivo de candidatura para struct descritor.Candidatura, erro %q", err)
-		}
-		if c.picture != nil { // se candidato tiver foto
-			candidature.Candidato.PhotoURL = fmt.Sprintf("https://drive.google.com/uc?id=%s&export=download", c.picture.Id)
-		}
-		if dbItems[candidature.Municipio] == nil {
-			dbItems[candidature.Municipio] = &votingCity{
-				City:       candidature.Municipio,
-				State:      candidature.UF,
-				Candidates: []*descritor.Candidatura{&candidature},
+			if c.picture != nil { // se candidato tiver foto
+				candidature.Candidato.PhotoURL = fmt.Sprintf("https://drive.google.com/uc?id=%s&export=download", c.picture.Id)
 			}
-		} else {
-			dbItems[candidature.Municipio].Candidates = append(dbItems[candidature.Municipio].Candidates, &candidature)
+			if dbItems[candidature.Municipio] == nil {
+				dbItems[candidature.Municipio] = &votingCity{
+					City:       candidature.Municipio,
+					State:      candidature.UF,
+					Candidates: []*descritor.Candidatura{&candidature},
+				}
+			} else {
+				dbItems[candidature.Municipio].Candidates = append(dbItems[candidature.Municipio].Candidates, &candidature)
+			}
 		}
 	}
 	return dbItems, nil
