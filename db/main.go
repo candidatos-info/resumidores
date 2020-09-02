@@ -39,7 +39,8 @@ type votingCity struct {
 
 // used on states collection
 type state struct {
-	State string
+	State  string
+	Cities []string
 }
 
 type gDriveCandFiles struct {
@@ -132,15 +133,22 @@ func summarize(source, s string, datastoreClient *datastore.Client, googleDriveS
 	if err != nil {
 		return fmt.Errorf("falha ao gerar itens do banco, erro %q", err)
 	}
+	citiesMap := make(map[string]bool)
 	for _, c := range dbItems {
+		citiesMap[c.City] = true
 		userKey := datastore.NameKey(candidaturesCollection, fmt.Sprintf("%s_%s", c.State, c.City), nil)
 		if _, err := datastoreClient.Put(context.Background(), userKey, c); err != nil {
 			return fmt.Errorf("falha ao salvar cidade [%s] do estado [%s] no banco, erro %q", c.City, c.State, err)
 		}
 		log.Printf("saved city [%s] of state [%s]\n", c.City, c.State)
 	}
+	var cities []string
+	for key := range citiesMap {
+		cities = append(cities, key)
+	}
 	stateToSave := &state{
-		State: s,
+		State:  s,
+		Cities: cities,
 	}
 	stateKey := datastore.NameKey(statesCollection, s, nil)
 	if _, err := datastoreClient.Put(context.Background(), stateKey, stateToSave); err != nil {
@@ -183,7 +191,16 @@ func getCandidateFiles(fileList []*drive.File) map[string]gDriveCandFiles {
 
 func getDBItems(candFiles map[string]gDriveCandFiles, googleDriveService *drive.Service) (map[string]*votingCity, error) {
 	dbItems := make(map[string]*votingCity)
-	for _, c := range candFiles {
+	slice := make(map[string]gDriveCandFiles)
+	counter := 0
+	for key, cu := range candFiles {
+		slice[key] = cu
+		counter++
+		if counter >= 10 {
+			break
+		}
+	}
+	for _, c := range slice {
 		if c.candidatureFile != nil {
 			content, err := func() ([]byte, error) {
 				r, err := googleDriveService.Files.Get(c.candidatureFile.Id).Download()
