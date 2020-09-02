@@ -22,6 +22,7 @@ import (
 
 const (
 	candidaturesCollection = "candidatures"
+	statesCollection       = "states"
 	pageSize               = 1000
 )
 
@@ -34,6 +35,12 @@ type votingCity struct {
 	City       string
 	State      string
 	Candidates []*descritor.Candidatura
+}
+
+// used on states collection
+type state struct {
+	State  string
+	Cities []string
 }
 
 type gDriveCandFiles struct {
@@ -103,8 +110,8 @@ func createGoogleDriveClient(googleDriveCredentialsFile, goodleDriveOAuthTokenFi
 	return googleDriveService, nil
 }
 
-func summarize(source, state string, datastoreClient *datastore.Client, googleDriveService *drive.Service) error {
-	query := fmt.Sprintf("name contains '%s' and '%s' in parents", state, source) // pegando os arquivos com prefixo 'estado' da pasta de id 'source'
+func summarize(source, s string, datastoreClient *datastore.Client, googleDriveService *drive.Service) error {
+	query := fmt.Sprintf("name contains '%s' and '%s' in parents", s, source) // pegando os arquivos com prefixo 'estado' da pasta de id 'source'
 	var result *drive.FileList
 	var setToResolve []*drive.File
 	var err error
@@ -117,7 +124,7 @@ func summarize(source, state string, datastoreClient *datastore.Client, googleDr
 		}
 		result, err = listRequest.Do()
 		if err != nil {
-			return fmt.Errorf("falha ao buscar arquivos do estado [%s] no diretório [%s], erro %q", state, source, err)
+			return fmt.Errorf("falha ao buscar arquivos do estado [%s] no diretório [%s], erro %q", s, source, err)
 		}
 		setToResolve = append(setToResolve, result.Files...)
 	}
@@ -126,12 +133,26 @@ func summarize(source, state string, datastoreClient *datastore.Client, googleDr
 	if err != nil {
 		return fmt.Errorf("falha ao gerar itens do banco, erro %q", err)
 	}
+	citiesMap := make(map[string]bool)
 	for _, c := range dbItems {
+		citiesMap[c.City] = true
 		userKey := datastore.NameKey(candidaturesCollection, fmt.Sprintf("%s_%s", c.State, c.City), nil)
 		if _, err := datastoreClient.Put(context.Background(), userKey, c); err != nil {
 			return fmt.Errorf("falha ao salvar cidade [%s] do estado [%s] no banco, erro %q", c.City, c.State, err)
 		}
 		log.Printf("saved city [%s] of state [%s]\n", c.City, c.State)
+	}
+	var cities []string
+	for key := range citiesMap {
+		cities = append(cities, key)
+	}
+	stateToSave := &state{
+		State:  s,
+		Cities: cities,
+	}
+	stateKey := datastore.NameKey(statesCollection, s, nil)
+	if _, err := datastoreClient.Put(context.Background(), stateKey, stateToSave); err != nil {
+		return fmt.Errorf("falha ao salvar estado [%s] na coleção de estado, erro %q", s, err)
 	}
 	return nil
 }
