@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"encoding/json"
-	"flag"
 	"fmt"
 	"io/ioutil"
 	"log"
@@ -22,6 +21,7 @@ import (
 
 const (
 	candidaturesCollection = "candidatures"
+	statesCollection       = "states"
 	pageSize               = 1000
 )
 
@@ -36,45 +36,61 @@ type votingCity struct {
 	Candidates []*descritor.Candidatura
 }
 
+// used on states collection
+type state struct {
+	State string
+}
+
 type gDriveCandFiles struct {
 	candidatureFile *drive.File
 	picture         *drive.File
 }
 
 func main() {
-	source := flag.String("source", "", "local onde os arquivos de fotos e candidaturas estão aramazenados")
-	state := flag.String("state", "", "estado para ser enriquecido")
-	projectID := flag.String("projectID", "", "id do projeto no Google Cloud")
-	googleDriveCredentialsFile := flag.String("credentials", "", "chave de credenciais o Goodle Drive")
-	goodleDriveOAuthTokenFile := flag.String("OAuthToken", "", "arquivo com token oauth")
-	flag.Parse()
-	if *source == "" {
-		log.Fatal("informe o local onde os arquivos de fotos e candidaturas estão")
-	}
-	if *state == "" {
-		log.Fatal("informe o estado a ser processado")
-	}
-	if *projectID == "" {
-		log.Fatal("informe o ID do projeto no GCP")
-	}
-	if *googleDriveCredentialsFile == "" {
-		log.Fatal("informe o path para o arquivo de credenciais do Goodle Drive")
-	}
-	if *goodleDriveOAuthTokenFile == "" {
-		log.Fatal("informe o path para o arquivo de token OAuth do Google Drive")
-	}
-	// Creating datastore client
-	datastoreClient, err := datastore.NewClient(context.Background(), *projectID)
+	// source := flag.String("source", "", "local onde os arquivos de fotos e candidaturas estão aramazenados")
+	// state := flag.String("state", "", "estado para ser enriquecido")
+	// projectID := flag.String("projectID", "", "id do projeto no Google Cloud")
+	// googleDriveCredentialsFile := flag.String("credentials", "", "chave de credenciais o Goodle Drive")
+	// goodleDriveOAuthTokenFile := flag.String("OAuthToken", "", "arquivo com token oauth")
+	// flag.Parse()
+	// if *source == "" {
+	// 	log.Fatal("informe o local onde os arquivos de fotos e candidaturas estão")
+	// }
+	// if *state == "" {
+	// 	log.Fatal("informe o estado a ser processado")
+	// }
+	// if *projectID == "" {
+	// 	log.Fatal("informe o ID do projeto no GCP")
+	// }
+	// if *googleDriveCredentialsFile == "" {
+	// 	log.Fatal("informe o path para o arquivo de credenciais do Goodle Drive")
+	// }
+	// if *goodleDriveOAuthTokenFile == "" {
+	// 	log.Fatal("informe o path para o arquivo de token OAuth do Google Drive")
+	// }
+	// // Creating datastore client
+	// datastoreClient, err := datastore.NewClient(context.Background(), *projectID)
+	// if err != nil {
+	// 	log.Fatalf("falha ao criar cliente de datastore: %v", err)
+	// }
+	// // Creating Google Drive client
+	// googleDriveService, err := createGoogleDriveClient(*googleDriveCredentialsFile, *goodleDriveOAuthTokenFile)
+	// if err != nil {
+	// 	log.Fatalf("falha ao criar cliente do Google Drive, erro %q", err)
+	// }
+	// if err := summarize(*source, *state, datastoreClient, googleDriveService); err != nil {
+	// 	log.Fatalf("falha ao executar processamento do resumidor do banco, erro %q", err)
+	// }
+	client, err := datastore.NewClient(context.Background(), "candidatos-info-286219")
 	if err != nil {
-		log.Fatalf("falha ao criar cliente de datastore: %v", err)
+		log.Fatalf("falha ao criar cliente do Datastore, erro %q", err)
 	}
-	// Creating Google Drive client
-	googleDriveService, err := createGoogleDriveClient(*googleDriveCredentialsFile, *goodleDriveOAuthTokenFile)
-	if err != nil {
-		log.Fatalf("falha ao criar cliente do Google Drive, erro %q", err)
+	stateToSave := &state{
+		State: "AL",
 	}
-	if err := summarize(*source, *state, datastoreClient, googleDriveService); err != nil {
-		log.Fatalf("falha ao executar processamento do resumidor do banco, erro %q", err)
+	stateKey := datastore.NameKey(statesCollection, "AL", nil)
+	if _, err := client.Put(context.Background(), stateKey, stateToSave); err != nil {
+		log.Fatalf("falha ao salvar estado [%s] na coleção de estado, erro %q", "AL", err)
 	}
 }
 
@@ -103,8 +119,8 @@ func createGoogleDriveClient(googleDriveCredentialsFile, goodleDriveOAuthTokenFi
 	return googleDriveService, nil
 }
 
-func summarize(source, state string, datastoreClient *datastore.Client, googleDriveService *drive.Service) error {
-	query := fmt.Sprintf("name contains '%s' and '%s' in parents", state, source) // pegando os arquivos com prefixo 'estado' da pasta de id 'source'
+func summarize(source, s string, datastoreClient *datastore.Client, googleDriveService *drive.Service) error {
+	query := fmt.Sprintf("name contains '%s' and '%s' in parents", s, source) // pegando os arquivos com prefixo 'estado' da pasta de id 'source'
 	var result *drive.FileList
 	var setToResolve []*drive.File
 	var err error
@@ -117,7 +133,7 @@ func summarize(source, state string, datastoreClient *datastore.Client, googleDr
 		}
 		result, err = listRequest.Do()
 		if err != nil {
-			return fmt.Errorf("falha ao buscar arquivos do estado [%s] no diretório [%s], erro %q", state, source, err)
+			return fmt.Errorf("falha ao buscar arquivos do estado [%s] no diretório [%s], erro %q", s, source, err)
 		}
 		setToResolve = append(setToResolve, result.Files...)
 	}
@@ -132,6 +148,13 @@ func summarize(source, state string, datastoreClient *datastore.Client, googleDr
 			return fmt.Errorf("falha ao salvar cidade [%s] do estado [%s] no banco, erro %q", c.City, c.State, err)
 		}
 		log.Printf("saved city [%s] of state [%s]\n", c.City, c.State)
+	}
+	stateToSave := &state{
+		State: s,
+	}
+	stateKey := datastore.NameKey(statesCollection, s, nil)
+	if _, err := datastoreClient.Put(context.Background(), stateKey, stateToSave); err != nil {
+		return fmt.Errorf("falha ao salvar estado [%s] na coleção de estado, erro %q", s, err)
 	}
 	return nil
 }
