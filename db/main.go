@@ -191,16 +191,7 @@ func getCandidateFiles(fileList []*drive.File) map[string]gDriveCandFiles {
 
 func getDBItems(candFiles map[string]gDriveCandFiles, googleDriveService *drive.Service) (map[string]*votingCity, error) {
 	dbItems := make(map[string]*votingCity)
-	slice := make(map[string]gDriveCandFiles)
-	counter := 0
-	for key, cu := range candFiles {
-		slice[key] = cu
-		counter++
-		if counter >= 10 {
-			break
-		}
-	}
-	for _, c := range slice {
+	for _, c := range candFiles {
 		if c.candidatureFile != nil {
 			content, err := func() ([]byte, error) {
 				r, err := googleDriveService.Files.Get(c.candidatureFile.Id).Download()
