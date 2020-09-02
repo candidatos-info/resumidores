@@ -22,6 +22,7 @@ import (
 
 const (
 	candidaturesCollection = "candidatures"
+	pageSize               = 1000
 )
 
 var (
@@ -107,12 +108,9 @@ func summarize(source, state string, datastoreClient *datastore.Client, googleDr
 	var result *drive.FileList
 	var setToResolve []*drive.File
 	var err error
-	for {
-		if result != nil && result.NextPageToken == "" {
-			break
-		}
-		listRequest := googleDriveService.Files.List().Q(query) //.Do()
-		listRequest.PageSize(1000)
+	for result == nil || result.NextPageToken != "" {
+		listRequest := googleDriveService.Files.List().Q(query)
+		listRequest.PageSize(pageSize)
 		listRequest.Fields("nextPageToken, files(id, name)")
 		if result != nil {
 			listRequest.PageToken(result.NextPageToken)
@@ -171,17 +169,16 @@ func getCandidateFiles(fileList []*drive.File) map[string]gDriveCandFiles {
 }
 
 func getDBItems(candFiles map[string]gDriveCandFiles, googleDriveService *drive.Service) (map[string]*votingCity, error) {
-	log.Printf("files to retrieve protocol buffers: %d\n", len(candFiles))
 	dbItems := make(map[string]*votingCity)
 	for _, c := range candFiles {
 		if c.candidatureFile != nil {
 			content, err := func() ([]byte, error) {
-				response, err := googleDriveService.Files.Get(c.candidatureFile.Id).Download()
+				r, err := googleDriveService.Files.Get(c.candidatureFile.Id).Download()
 				if err != nil {
 					return nil, fmt.Errorf("falha ao pegar bytes de arquivo de candidatura, erro %q", err)
 				}
-				defer response.Body.Close()
-				b, err := ioutil.ReadAll(response.Body)
+				defer r.Body.Close()
+				b, err := ioutil.ReadAll(r.Body)
 				if err != nil {
 					return nil, fmt.Errorf("falha ao ler bytes de arquivo de candidatura, erro %q", err)
 				}
