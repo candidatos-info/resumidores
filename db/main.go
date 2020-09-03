@@ -30,11 +30,30 @@ var (
 	re = regexp.MustCompile(`([0-9]+)`) // regexp to extract numbers
 )
 
+// struct with a fields portion of descritor.Candidature. This is struct
+// is used only for DB purposes.
+type candidateForDB struct {
+	SequencialCandidate string `datastore:"sequencial_candidate,omitempty"` // Sequencial code of candidate on TSE system.
+	Site                string `datastore:"site,omitempty"`                 // Site of candidate.
+	Facebook            string `datastore:"facebook,omitempty"`             // Facebook of candidate.
+	Twitter             string `datastore:"twitter,omitempty"`              // Twitter of candidate.
+	Instagram           string `datastore:"instagram,omitempty"`            // Instagram of candidate.
+	Description         string `datastore:"description,omitempty"`          // Description of candidate.
+	Biography           string `datastore:"biography,omitempty"`            // Biography of candidate.
+	PhotoURL            string `datastore:"photo_url,omitempty"`            // Photo URL of candidate.
+	LegalCode           string `datastore:"legal_code,omitempty"`           // Brazilian Legal Code (CPF) of candidate.
+	Party               string `datastore:"party,omitempty"`                // Party of candidate.
+	Name                string `datastore:"name,omitempty"`                 // Natural name of candidate.
+	BallotName          string `datastore:"ballot_name,omitempty"`          // Ballot name of candidate.
+	BallotNumber        int    `datastore:"ballot_number,omitempty"`        // Ballot number of candidate.
+	Email               string `datastore:"email,omitempty"`                // Email of candidate.
+}
+
 // db schema
 type votingCity struct {
 	City       string
 	State      string
-	Candidates []*descritor.Candidatura
+	Candidates []*candidateForDB
 }
 
 // used on states collection
@@ -217,14 +236,29 @@ func getDBItems(candFiles map[string]gDriveCandFiles, googleDriveService *drive.
 			if c.picture != nil { // se candidato tiver foto
 				candidature.Candidato.PhotoURL = fmt.Sprintf("https://drive.google.com/uc?id=%s&export=download", c.picture.Id)
 			}
+			candidateDataToPersist := candidateForDB{
+				SequencialCandidate: candidature.SequencialCandidato,
+				Site:                candidature.Candidato.Site,
+				Facebook:            candidature.Candidato.Facebook,
+				Twitter:             candidature.Candidato.Twitter,
+				Instagram:           candidature.Candidato.Instagram,
+				Description:         candidature.Descricao,
+				Biography:           candidature.Candidato.Biografia,
+				PhotoURL:            candidature.Candidato.PhotoURL,
+				Party:               candidature.LegendaPartido,
+				Name:                candidature.Candidato.Nome,
+				BallotName:          candidature.NomeUrna,
+				BallotNumber:        int(candidature.NumeroUrna),
+				Email:               candidature.Candidato.Email,
+			}
 			if dbItems[candidature.Municipio] == nil {
 				dbItems[candidature.Municipio] = &votingCity{
 					City:       candidature.Municipio,
 					State:      candidature.UF,
-					Candidates: []*descritor.Candidatura{&candidature},
+					Candidates: []*candidateForDB{&candidateDataToPersist},
 				}
 			} else {
-				dbItems[candidature.Municipio].Candidates = append(dbItems[candidature.Municipio].Candidates, &candidature)
+				dbItems[candidature.Municipio].Candidates = append(dbItems[candidature.Municipio].Candidates, &candidateDataToPersist)
 			}
 		}
 	}
