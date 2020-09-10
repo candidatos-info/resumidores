@@ -51,15 +51,16 @@ type candidateForDB struct {
 
 // db schema
 type votingCity struct {
-	City       string
-	State      string
-	Candidates []*candidateForDB
+	Year       int               `datastore:"year,omitempty"`       // Election year.
+	City       string            `datastore:"city,omitempty"`       // Election city.
+	State      string            `datastore:"state,omitempty"`      // Election state
+	Candidates []*candidateForDB `datastore:"candidates,omitempty"` // List contaning the candidates of city.
 }
 
 // used on states collection
 type state struct {
-	State  string
-	Cities []string
+	State  string   `datastore:"state"`  // State name.
+	Cities []string `datastore:"cities"` // List contaning the cities of state.
 }
 
 type gDriveCandFiles struct {
