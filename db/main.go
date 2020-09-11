@@ -201,6 +201,8 @@ func getDBItems(candFiles map[string]gDriveCandFiles, googleDriveService *drive.
 			}
 			if c.picture != nil { // se candidato tiver foto
 				candidature.Candidato.PhotoURL = fmt.Sprintf("https://drive.google.com/uc?id=%s&export=download", c.picture.Id)
+			} else {
+				candidature.Candidato.PhotoURL = "https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_640.png"
 			}
 			candidateDataToPersist := descritor.CandidateForDB{
 				SequencialCandidate: candidature.SequencialCandidato,
@@ -216,6 +218,7 @@ func getDBItems(candFiles map[string]gDriveCandFiles, googleDriveService *drive.
 				BallotName:          candidature.NomeUrna,
 				BallotNumber:        int(candidature.NumeroUrna),
 				Email:               candidature.Candidato.Email,
+				Role:                candidature.Cargo,
 			}
 			if dbItems[candidature.Municipio] == nil {
 				dbItems[candidature.Municipio] = &descritor.VotingCity{
