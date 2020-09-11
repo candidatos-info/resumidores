@@ -219,6 +219,7 @@ func getDBItems(candFiles map[string]gDriveCandFiles, googleDriveService *drive.
 			}
 			if dbItems[candidature.Municipio] == nil {
 				dbItems[candidature.Municipio] = &descritor.VotingCity{
+					Year:       int(candidature.Legislatura),
 					City:       candidature.Municipio,
 					State:      candidature.UF,
 					Candidates: []*descritor.CandidateForDB{&candidateDataToPersist},
