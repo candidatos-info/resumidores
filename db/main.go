@@ -21,47 +21,12 @@ import (
 )
 
 const (
-	candidaturesCollection = "candidatures"
-	statesCollection       = "states"
-	pageSize               = 1000
+	pageSize = 1000
 )
 
 var (
 	re = regexp.MustCompile(`([0-9]+)`) // regexp to extract numbers
 )
-
-// struct with a fields portion of descritor.Candidature. This is struct
-// is used only for DB purposes.
-type candidateForDB struct {
-	SequencialCandidate string `datastore:"sequencial_candidate,omitempty"` // Sequencial code of candidate on TSE system.
-	Site                string `datastore:"site,omitempty"`                 // Site of candidate.
-	Facebook            string `datastore:"facebook,omitempty"`             // Facebook of candidate.
-	Twitter             string `datastore:"twitter,omitempty"`              // Twitter of candidate.
-	Instagram           string `datastore:"instagram,omitempty"`            // Instagram of candidate.
-	Description         string `datastore:"description,omitempty"`          // Description of candidate.
-	Biography           string `datastore:"biography,omitempty"`            // Biography of candidate.
-	PhotoURL            string `datastore:"photo_url,omitempty"`            // Photo URL of candidate.
-	LegalCode           string `datastore:"legal_code,omitempty"`           // Brazilian Legal Code (CPF) of candidate.
-	Party               string `datastore:"party,omitempty"`                // Party of candidate.
-	Name                string `datastore:"name,omitempty"`                 // Natural name of candidate.
-	BallotName          string `datastore:"ballot_name,omitempty"`          // Ballot name of candidate.
-	BallotNumber        int    `datastore:"ballot_number,omitempty"`        // Ballot number of candidate.
-	Email               string `datastore:"email,omitempty"`                // Email of candidate.
-}
-
-// db schema
-type votingCity struct {
-	Year       int               `datastore:"year,omitempty"`       // Election year.
-	City       string            `datastore:"city,omitempty"`       // Election city.
-	State      string            `datastore:"state,omitempty"`      // Election state
-	Candidates []*candidateForDB `datastore:"candidates,omitempty"` // List contaning the candidates of city.
-}
-
-// used on states collection
-type state struct {
-	State  string   `datastore:"state"`  // State name.
-	Cities []string `datastore:"cities"` // List contaning the cities of state.
-}
 
 type gDriveCandFiles struct {
 	candidatureFile *drive.File
@@ -156,7 +121,7 @@ func summarize(source, s string, datastoreClient *datastore.Client, googleDriveS
 	citiesMap := make(map[string]bool)
 	for _, c := range dbItems {
 		citiesMap[c.City] = true
-		userKey := datastore.NameKey(candidaturesCollection, fmt.Sprintf("%s_%s", c.State, c.City), nil)
+		userKey := datastore.NameKey(descritor.CandidaturesCollection, fmt.Sprintf("%s_%s", c.State, c.City), nil)
 		if _, err := datastoreClient.Put(context.Background(), userKey, c); err != nil {
 			return fmt.Errorf("falha ao salvar cidade [%s] do estado [%s] no banco, erro %q", c.City, c.State, err)
 		}
@@ -166,11 +131,11 @@ func summarize(source, s string, datastoreClient *datastore.Client, googleDriveS
 	for key := range citiesMap {
 		cities = append(cities, key)
 	}
-	stateToSave := &state{
+	stateToSave := &descritor.Location{
 		State:  s,
 		Cities: cities,
 	}
-	stateKey := datastore.NameKey(statesCollection, s, nil)
+	stateKey := datastore.NameKey(descritor.LocationsCollection, s, nil)
 	if _, err := datastoreClient.Put(context.Background(), stateKey, stateToSave); err != nil {
 		return fmt.Errorf("falha ao salvar estado [%s] na coleção de estado, erro %q", s, err)
 	}
@@ -209,8 +174,8 @@ func getCandidateFiles(fileList []*drive.File) map[string]gDriveCandFiles {
 	return candFiles
 }
 
-func getDBItems(candFiles map[string]gDriveCandFiles, googleDriveService *drive.Service) (map[string]*votingCity, error) {
-	dbItems := make(map[string]*votingCity)
+func getDBItems(candFiles map[string]gDriveCandFiles, googleDriveService *drive.Service) (map[string]*descritor.VotingCity, error) {
+	dbItems := make(map[string]*descritor.VotingCity)
 	for _, c := range candFiles {
 		if c.candidatureFile != nil {
 			content, err := func() ([]byte, error) {
@@ -237,7 +202,7 @@ func getDBItems(candFiles map[string]gDriveCandFiles, googleDriveService *drive.
 			if c.picture != nil { // se candidato tiver foto
 				candidature.Candidato.PhotoURL = fmt.Sprintf("https://drive.google.com/uc?id=%s&export=download", c.picture.Id)
 			}
-			candidateDataToPersist := candidateForDB{
+			candidateDataToPersist := descritor.CandidateForDB{
 				SequencialCandidate: candidature.SequencialCandidato,
 				Site:                candidature.Candidato.Site,
 				Facebook:            candidature.Candidato.Facebook,
@@ -253,10 +218,10 @@ func getDBItems(candFiles map[string]gDriveCandFiles, googleDriveService *drive.
 				Email:               candidature.Candidato.Email,
 			}
 			if dbItems[candidature.Municipio] == nil {
-				dbItems[candidature.Municipio] = &votingCity{
+				dbItems[candidature.Municipio] = &descritor.VotingCity{
 					City:       candidature.Municipio,
 					State:      candidature.UF,
-					Candidates: []*candidateForDB{&candidateDataToPersist},
+					Candidates: []*descritor.CandidateForDB{&candidateDataToPersist},
 				}
 			} else {
 				dbItems[candidature.Municipio].Candidates = append(dbItems[candidature.Municipio].Candidates, &candidateDataToPersist)
