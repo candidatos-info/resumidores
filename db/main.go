@@ -2,21 +2,27 @@ package main
 
 import (
 	"context"
+	"encoding/csv"
 	"encoding/json"
 	"flag"
 	"fmt"
+	"io"
 	"io/ioutil"
 	"log"
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
+	"strconv"
 	"time"
 
 	"cloud.google.com/go/datastore"
 	"github.com/candidatos-info/descritor"
+	"github.com/gocarina/gocsv"
 	"github.com/golang/protobuf/proto"
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
+	"golang.org/x/text/encoding/charmap"
 	"google.golang.org/api/drive/v3"
 )
 
@@ -33,15 +39,27 @@ type gDriveCandFiles struct {
 	picture         *drive.File
 }
 
+type pathResolver struct {
+	GoogleDriveID      string `csv:"google_drive_id"` // ID do arquivo no Google Drive
+	ProtoBuffLocalPath string `csv:"proto_buff_path"` // Path para o arquivo proto buff armazenado localmente
+}
+
+type pictureReference struct {
+	GoogleDriveID   string `csv:"google_drive_id"`   // ID do arquivo de foto no Google Drive
+	TSESequencialID string `csv:"tse_sequencial_id"` // ID sequencial do candidato no TSE
+}
+
 func main() {
-	source := flag.String("source", "", "local onde os arquivos de fotos e candidaturas estão aramazenados")
+	pathsFile := flag.String("candidaturesPaths", "", "arquivo contendo os paths dos arquivos de candidaturas locais e no Google Drive")
+	picturesFile := flag.String("picturesReferences", "", "arquivo contento referência dos arquivos de fotos processados")
 	state := flag.String("state", "", "estado para ser enriquecido")
 	projectID := flag.String("projectID", "", "id do projeto no Google Cloud")
 	googleDriveCredentialsFile := flag.String("credentials", "", "chave de credenciais o Goodle Drive")
 	goodleDriveOAuthTokenFile := flag.String("OAuthToken", "", "arquivo com token oauth")
+	offset := flag.Int("offset", 0, "offset que aponta para a linha de início do processamento")
 	flag.Parse()
-	if *source == "" {
-		log.Fatal("informe o local onde os arquivos de fotos e candidaturas estão")
+	if *pathsFile == "" {
+		log.Fatal("informe o path para o arquivo contendo os paths dos protocol buffers")
 	}
 	if *state == "" {
 		log.Fatal("informe o estado a ser processado")
@@ -55,6 +73,12 @@ func main() {
 	if *goodleDriveOAuthTokenFile == "" {
 		log.Fatal("informe o path para o arquivo de token OAuth do Google Drive")
 	}
+	if *offset < 0 {
+		log.Fatal("offset deve ser maior ou igual a zero")
+	}
+	if *picturesFile == "" {
+		log.Fatal("informe o path para o arquivo contendo as referências das fotos de candidaturas")
+	}
 	// Creating datastore client
 	datastoreClient, err := datastore.NewClient(context.Background(), *projectID)
 	if err != nil {
@@ -65,7 +89,7 @@ func main() {
 	if err != nil {
 		log.Fatalf("falha ao criar cliente do Google Drive, erro %q", err)
 	}
-	if err := summarize(*source, *state, datastoreClient, googleDriveService); err != nil {
+	if err := summarize(*pathsFile, *state, *picturesFile, datastoreClient, googleDriveService, *offset); err != nil {
 		log.Fatalf("falha ao executar processamento do resumidor do banco, erro %q", err)
 	}
 }
@@ -95,35 +119,51 @@ func createGoogleDriveClient(googleDriveCredentialsFile, goodleDriveOAuthTokenFi
 	return googleDriveService, nil
 }
 
-func summarize(source, s string, datastoreClient *datastore.Client, googleDriveService *drive.Service) error {
-	query := fmt.Sprintf("name contains '%s' and '%s' in parents", s, source) // pegando os arquivos com prefixo 'estado' da pasta de id 'source'
-	var result *drive.FileList
-	var setToResolve []*drive.File
-	var err error
-	for result == nil || result.NextPageToken != "" {
-		listRequest := googleDriveService.Files.List().Q(query)
-		listRequest.PageSize(pageSize)
-		listRequest.Fields("nextPageToken, files(id, name)")
-		if result != nil {
-			listRequest.PageToken(result.NextPageToken)
-		}
-		result, err = listRequest.Do()
-		if err != nil {
-			return fmt.Errorf("falha ao buscar arquivos do estado [%s] no diretório [%s], erro %q", s, source, err)
-		}
-		setToResolve = append(setToResolve, result.Files...)
-	}
-	candFiles := getCandidateFiles(setToResolve)
-	dbItems, err := getDBItems(candFiles, googleDriveService)
+func summarize(pathsFile, state, picturesFile string, datastoreClient *datastore.Client, googleDriveService *drive.Service, offset int) error {
+	processedPicturesCache, err := getProcessedPicturesCache(picturesFile)
 	if err != nil {
-		return fmt.Errorf("falha ao gerar itens do banco, erro %q", err)
+		return err
 	}
-	citiesMap := make(map[string]bool)
+	pathsResolver, err := getPathsResolverFromFile(pathsFile)
+	if err != nil {
+		return err
+	}
+	sort.Slice(pathsResolver, func(i, j int) bool { // sorting list using sequencial ID gotten from local path
+		prevIndex, err := strconv.Atoi(re.FindAllString(filepath.Base(pathsResolver[i].ProtoBuffLocalPath), -1)[0])
+		if err != nil {
+			log.Fatalf("falha ao converter o ID do Google Drive [%s] para inteiro, erro %v", pathsResolver[i].GoogleDriveID, err)
+		}
+		nextIndex, err := strconv.Atoi(re.FindAllString(filepath.Base(pathsResolver[j].ProtoBuffLocalPath), -1)[0])
+		if err != nil {
+			log.Fatalf("falha ao converter o ID do Google Drive [%s] para inteiro, erro %v", pathsResolver[j].GoogleDriveID, err)
+		}
+		return prevIndex < nextIndex
+	})
+	nextOffset := offset
+	dbItems := make(map[string]*descritor.VotingCity)
+	for _, pathResolver := range pathsResolver[offset:] {
+		candidate, err := pathResolverToCandidature(pathResolver, googleDriveService, processedPicturesCache)
+		if err != nil {
+			return fmt.Errorf("falha ao deserializar dados de candidatura. OFFSET: [%d], erro %v", nextOffset, err)
+		}
+		if dbItems[candidate.City] == nil {
+			dbItems[candidate.City] = &descritor.VotingCity{
+				Year:       int(candidate.Year),
+				City:       candidate.City,
+				State:      candidate.State,
+				Candidates: []*descritor.CandidateForDB{candidate},
+			}
+		} else {
+			dbItems[candidate.City].Candidates = append(dbItems[candidate.City].Candidates, candidate)
+		}
+		nextOffset++
+	}
+	citiesMap := make(map[string]struct{})
 	for _, c := range dbItems {
-		citiesMap[c.City] = true
+		citiesMap[c.City] = struct{}{}
 		userKey := datastore.NameKey(descritor.CandidaturesCollection, fmt.Sprintf("%s_%s", c.State, c.City), nil)
 		if _, err := datastoreClient.Put(context.Background(), userKey, c); err != nil {
-			return fmt.Errorf("falha ao salvar cidade [%s] do estado [%s] no banco, erro %q", c.City, c.State, err)
+			return fmt.Errorf("falha ao salvar cidade [%s] do estado [%s] no banco. OFFSET: [%d], erro %v", c.City, c.State, nextOffset, err)
 		}
 		log.Printf("saved city [%s] of state [%s]\n", c.City, c.State)
 	}
@@ -132,108 +172,110 @@ func summarize(source, s string, datastoreClient *datastore.Client, googleDriveS
 		cities = append(cities, key)
 	}
 	stateToSave := &descritor.Location{
-		State:  s,
+		State:  state,
 		Cities: cities,
 	}
-	stateKey := datastore.NameKey(descritor.LocationsCollection, s, nil)
+	stateKey := datastore.NameKey(descritor.LocationsCollection, state, nil)
 	if _, err := datastoreClient.Put(context.Background(), stateKey, stateToSave); err != nil {
-		return fmt.Errorf("falha ao salvar estado [%s] na coleção de estado, erro %q", s, err)
+		return fmt.Errorf("falha ao salvar estado [%s] na coleção de estado.OFFSET: [%d], erro %q", state, nextOffset, err)
 	}
 	return nil
 }
 
-func getCandidateFiles(fileList []*drive.File) map[string]gDriveCandFiles {
-	candFiles := make(map[string]gDriveCandFiles)
-	for _, item := range fileList {
-		sequencialID := re.FindAllString(item.Name, -1)[0]
-		switch filepath.Ext(item.Name) {
-		case ".pb":
-			c, ok := candFiles[sequencialID]
-			if !ok {
-				candFiles[sequencialID] = gDriveCandFiles{
-					candidatureFile: item,
-				}
-			} else {
-				c.candidatureFile = item
-				candFiles[sequencialID] = c
-			}
-		case ".jpg":
-			c, ok := candFiles[sequencialID]
-			if !ok {
-				candFiles[sequencialID] = gDriveCandFiles{
-					picture: item,
-				}
-			} else {
-				c.picture = item
-				candFiles[sequencialID] = c
-			}
-		default:
-			log.Printf("file [%s] has unknown extension\n", item.Name)
-		}
+func getProcessedPicturesCache(picturesFile string) (map[string]string, error) {
+	file, err := os.Open(picturesFile)
+	if err != nil {
+		return nil, fmt.Errorf("falha ao abrir arquivo [%s] contendo os cache de fotos processadas, erro %v", picturesFile, err)
 	}
-	return candFiles
+	defer file.Close()
+	gocsv.SetCSVReader(func(in io.Reader) gocsv.CSVReader {
+		// Enforcing reading the TSE zip file as ISO 8859-1 (latin 1)
+		r := csv.NewReader(charmap.ISO8859_1.NewDecoder().Reader(in))
+		r.LazyQuotes = true
+		r.Comma = ','
+		return r
+	})
+	var pc []*pictureReference
+	if err := gocsv.UnmarshalFile(file, &pc); err != nil {
+		return nil, fmt.Errorf("falha ao inflar slice de referência de fotos [%s], erro %v", picturesFile, err)
+	}
+	cache := make(map[string]string)
+	for _, r := range pc {
+		cache[r.TSESequencialID] = r.GoogleDriveID
+	}
+	return cache, nil
 }
 
-func getDBItems(candFiles map[string]gDriveCandFiles, googleDriveService *drive.Service) (map[string]*descritor.VotingCity, error) {
-	dbItems := make(map[string]*descritor.VotingCity)
-	for _, c := range candFiles {
-		if c.candidatureFile != nil {
-			content, err := func() ([]byte, error) {
-				r, err := googleDriveService.Files.Get(c.candidatureFile.Id).Download()
-				if err != nil {
-					return nil, fmt.Errorf("falha ao pegar bytes de arquivo de candidatura, erro %q", err)
-				}
-				defer r.Body.Close()
-				b, err := ioutil.ReadAll(r.Body)
-				if err != nil {
-					return nil, fmt.Errorf("falha ao ler bytes de arquivo de candidatura, erro %q", err)
-				}
-				return b, nil
-			}()
-			if err != nil {
-				return nil, err
-			}
-			log.Printf("downloaded protocol buffer for file [%s]\n", c.candidatureFile.Name)
-			time.Sleep(time.Second * 1) // esse delay é colocado para evitar atingir o limite de requests por segundo. Preste atenção ao tamanho do arquivo que irá enviar.
-			var candidature descritor.Candidatura
-			if err = proto.Unmarshal(content, &candidature); err != nil {
-				return nil, fmt.Errorf("falha ao deserializar bytes de arquivo de candidatura para struct descritor.Candidatura, erro %q", err)
-			}
-			if c.picture != nil { // se candidato tiver foto
-				candidature.Candidato.PhotoURL = fmt.Sprintf("https://drive.google.com/uc?id=%s&export=download", c.picture.Id)
-			} else {
-				candidature.Candidato.PhotoURL = "https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_640.png"
-			}
-			candidateDataToPersist := descritor.CandidateForDB{
-				SequencialCandidate: candidature.SequencialCandidato,
-				Site:                candidature.Candidato.Site,
-				Facebook:            candidature.Candidato.Facebook,
-				Twitter:             candidature.Candidato.Twitter,
-				Instagram:           candidature.Candidato.Instagram,
-				Description:         candidature.Descricao,
-				Biography:           candidature.Candidato.Biografia,
-				PhotoURL:            candidature.Candidato.PhotoURL,
-				Party:               candidature.LegendaPartido,
-				Name:                candidature.Candidato.Nome,
-				BallotName:          candidature.NomeUrna,
-				BallotNumber:        int(candidature.NumeroUrna),
-				Email:               candidature.Candidato.Email,
-				Role:                candidature.Cargo,
-				Year:                int(candidature.Legislatura),
-				City:                candidature.Municipio,
-				State:               candidature.UF,
-			}
-			if dbItems[candidature.Municipio] == nil {
-				dbItems[candidature.Municipio] = &descritor.VotingCity{
-					Year:       int(candidature.Legislatura),
-					City:       candidature.Municipio,
-					State:      candidature.UF,
-					Candidates: []*descritor.CandidateForDB{&candidateDataToPersist},
-				}
-			} else {
-				dbItems[candidature.Municipio].Candidates = append(dbItems[candidature.Municipio].Candidates, &candidateDataToPersist)
-			}
+func pathResolverToCandidature(pathResolver *pathResolver, googleDriveService *drive.Service, processedPicturesCache map[string]string) (*descritor.CandidateForDB, error) {
+	var bytes []byte
+	var err error
+	bytes, err = ioutil.ReadFile(pathResolver.ProtoBuffLocalPath) // trying to read bytes from local file
+	if err != nil {                                               // if reading local file failed, try to read from file on Google Drive
+		bytes, err = fetchCandidatureBytesFromGoogleDrive(pathResolver, googleDriveService)
+		if err != nil {
+			return nil, err
 		}
 	}
-	return dbItems, nil
+	var candidature descritor.Candidatura
+	if err = proto.Unmarshal(bytes, &candidature); err != nil {
+		return nil, fmt.Errorf("falha ao deserializar bytes de arquivo de candidatura com ID [%s] para struct descritor.Candidatura, erro %v", pathResolver.GoogleDriveID, err)
+	}
+	if _, ok := processedPicturesCache[candidature.SequencialCandidato]; ok {
+		candidature.Candidato.PhotoURL = fmt.Sprintf("https://drive.google.com/uc?id=%s&export=download", processedPicturesCache[candidature.SequencialCandidato])
+	} else {
+		candidature.Candidato.PhotoURL = "https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_640.png"
+	}
+	return &descritor.CandidateForDB{
+		SequencialCandidate: candidature.SequencialCandidato,
+		Site:                candidature.Candidato.Site,
+		Facebook:            candidature.Candidato.Facebook,
+		Twitter:             candidature.Candidato.Twitter,
+		Instagram:           candidature.Candidato.Instagram,
+		Description:         candidature.Descricao,
+		Biography:           candidature.Candidato.Biografia,
+		PhotoURL:            candidature.Candidato.PhotoURL,
+		Party:               candidature.LegendaPartido,
+		Name:                candidature.Candidato.Nome,
+		BallotName:          candidature.NomeUrna,
+		BallotNumber:        int(candidature.NumeroUrna),
+		Email:               candidature.Candidato.Email,
+		Role:                candidature.Cargo,
+		Year:                int(candidature.Legislatura),
+		City:                candidature.Municipio,
+		State:               candidature.UF,
+	}, nil
+}
+
+func fetchCandidatureBytesFromGoogleDrive(pathResolver *pathResolver, googleDriveService *drive.Service) ([]byte, error) {
+	r, err := googleDriveService.Files.Get(pathResolver.GoogleDriveID).Download()
+	if err != nil {
+		return nil, fmt.Errorf("falha ao trazer bytes de arquivo com ID [%s] do Google Drive, erro %v", pathResolver.GoogleDriveID, err)
+	}
+	defer r.Body.Close()
+	b, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		return nil, fmt.Errorf("falha ao ler bytes de arquivo de ID [%s] trazido do Google Drive, erro %q", pathResolver.GoogleDriveID, err)
+	}
+	time.Sleep(time.Second * 1) // esse delay é colocado para evitar atingir o limite de requests por segundo. Preste atenção ao tamanho do arquivo que irá enviar.
+	return b, nil
+}
+
+func getPathsResolverFromFile(pathsFile string) ([]*pathResolver, error) {
+	file, err := os.Open(pathsFile)
+	if err != nil {
+		return nil, fmt.Errorf("falha ao abrir arquivo [%s] contendo os paths dos protocol buffers, erro %v", pathsFile, err)
+	}
+	defer file.Close()
+	gocsv.SetCSVReader(func(in io.Reader) gocsv.CSVReader {
+		// Enforcing reading the TSE zip file as ISO 8859-1 (latin 1)
+		r := csv.NewReader(charmap.ISO8859_1.NewDecoder().Reader(in))
+		r.LazyQuotes = true
+		r.Comma = ','
+		return r
+	})
+	var paths []*pathResolver
+	if err := gocsv.UnmarshalFile(file, &paths); err != nil {
+		return nil, fmt.Errorf("falha ao inflar slice de paths de arquivos protocol buffers local [%s], erro %v", pathsFile, err)
+	}
+	return paths, nil
 }
