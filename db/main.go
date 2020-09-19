@@ -219,6 +219,9 @@ func getDBItems(candFiles map[string]gDriveCandFiles, googleDriveService *drive.
 				BallotNumber:        int(candidature.NumeroUrna),
 				Email:               candidature.Candidato.Email,
 				Role:                candidature.Cargo,
+				Year:                int(candidature.Legislatura),
+				City:                candidature.Municipio,
+				State:               candidature.UF,
 			}
 			if dbItems[candidature.Municipio] == nil {
 				dbItems[candidature.Municipio] = &descritor.VotingCity{
