@@ -157,6 +157,7 @@ func summarize(pathsFile, state, picturesFile string, dbClient *Client, googleDr
 		if _, err := dbClient.SaveCandidate(candidate); err != nil {
 			return fmt.Errorf("falha ao salvar candidatos no banco. OFFSET: [%d], erro %v", nextOffset, err)
 		}
+		log.Printf("saved candidate [%s] on db\n", candidate.SequencialCandidate)
 		citiesMap[candidate.City] = struct{}{}
 		nextOffset++
 	}
@@ -171,6 +172,7 @@ func summarize(pathsFile, state, picturesFile string, dbClient *Client, googleDr
 	if _, err := dbClient.SaveLocation(location); err != nil {
 		return fmt.Errorf("falha ao salvar local de votação no banco. OFFSET: [%d], erro %v", nextOffset, err)
 	}
+	fmt.Printf("saved location for state [%s] on db\n", state)
 	return nil
 }
 
