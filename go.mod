@@ -5,7 +5,7 @@ go 1.14
 require (
 	cloud.google.com/go v0.66.0 // indirect
 	cloud.google.com/go/datastore v1.3.0
-	github.com/candidatos-info/descritor v0.0.0-20200924115007-a43297a7bc78
+	github.com/candidatos-info/descritor v0.0.0-20200924122102-5bb12ef849a4
 
 	github.com/gocarina/gocsv v0.0.0-20200827134620-49f5c3fa2b3e
 	github.com/golang/protobuf v1.4.2
