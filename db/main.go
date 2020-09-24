@@ -31,7 +31,12 @@ const (
 )
 
 var (
-	re = regexp.MustCompile(`([0-9]+)`) // regexp to extract numbers
+	re       = regexp.MustCompile(`([0-9]+)`) // regexp to extract numbers
+	rolesMap = map[string]string{
+		"LM":  "vereador",
+		"EM":  "prefeito",
+		"VEM": "vice-prefeito",
+	}
 )
 
 type gDriveCandFiles struct {
@@ -227,10 +232,6 @@ func pathResolverToCandidature(pathResolver *pathResolver, googleDriveService *d
 	}
 	return &descritor.CandidateForDB{
 		SequencialCandidate: candidature.SequencialCandidato,
-		Site:                candidature.Candidato.Site,
-		Facebook:            candidature.Candidato.Facebook,
-		Twitter:             candidature.Candidato.Twitter,
-		Instagram:           candidature.Candidato.Instagram,
 		Description:         candidature.Descricao,
 		Biography:           candidature.Candidato.Biografia,
 		PhotoURL:            candidature.Candidato.PhotoURL,
@@ -239,7 +240,7 @@ func pathResolverToCandidature(pathResolver *pathResolver, googleDriveService *d
 		BallotName:          candidature.NomeUrna,
 		BallotNumber:        int(candidature.NumeroUrna),
 		Email:               candidature.Candidato.Email,
-		Role:                candidature.Cargo,
+		Role:                rolesMap[candidature.Cargo],
 		Year:                int(candidature.Legislatura),
 		City:                candidature.Municipio,
 		State:               candidature.UF,
