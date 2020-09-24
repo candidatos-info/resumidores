@@ -220,6 +220,7 @@ func pathResolverToCandidature(pathResolver *pathResolver, googleDriveService *d
 		candidature.Candidato.PhotoURL = "https://cdn.pixabay.com/photo/2015/10/05/22/37/blank-profile-picture-973460_640.png"
 	}
 	return &descritor.CandidateForDB{
+		Gender:              candidature.Candidato.Genero,
 		SequencialCandidate: candidature.SequencialCandidato,
 		Description:         candidature.Descricao,
 		Biography:           candidature.Candidato.Biografia,
