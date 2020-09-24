@@ -27,3 +27,8 @@ func New(url, database string) (*Client, error) {
 func (db *Client) SaveCandidate(c *descritor.CandidateForDB) (*descritor.CandidateForDB, error) {
 	return c, db.client.C(descritor.CandidaturesCollection).Insert(c)
 }
+
+// SaveLocation saves a new location
+func (db *Client) SaveLocation(l *descritor.Location) (*descritor.Location, error) {
+	return l, db.client.C(descritor.LocationsCollection).Insert(l)
+}

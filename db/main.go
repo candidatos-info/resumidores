@@ -148,49 +148,29 @@ func summarize(pathsFile, state, picturesFile string, dbClient *Client, googleDr
 		return prevIndex < nextIndex
 	})
 	nextOffset := offset
-	// dbItems := make(map[string]*descritor.VotingCity)
+	citiesMap := make(map[string]struct{})
 	for _, pathResolver := range pathsResolver[offset:] {
 		candidate, err := pathResolverToCandidature(pathResolver, googleDriveService, processedPicturesCache)
 		if err != nil {
 			return fmt.Errorf("falha ao deserializar dados de candidatura. OFFSET: [%d], erro %v", nextOffset, err)
 		}
-		// if dbItems[candidate.City] == nil {
-		// 	dbItems[candidate.City] = &descritor.VotingCity{
-		// 		Year:       int(candidate.Year),
-		// 		City:       candidate.City,
-		// 		State:      candidate.State,
-		// 		Candidates: []*descritor.CandidateForDB{candidate},
-		// 	}
-		// } else {
-		// 	dbItems[candidate.City].Candidates = append(dbItems[candidate.City].Candidates, candidate)
-		// }
 		if _, err := dbClient.SaveCandidate(candidate); err != nil {
 			return fmt.Errorf("falha ao salvar candidatos no banco. OFFSET: [%d], erro %v", nextOffset, err)
 		}
+		citiesMap[candidate.City] = struct{}{}
 		nextOffset++
 	}
-	// citiesMap := make(map[string]struct{})
-	// for _, c := range dbItems {
-	// 	citiesMap[c.City] = struct{}{}
-	// 	userKey := datastore.NameKey(descritor.CandidaturesCollection, fmt.Sprintf("%s_%s", c.State, c.City), nil)
-	// 	if _, err := datastoreClient.Put(context.Background(), userKey, c); err != nil {
-	// 		return fmt.Errorf("falha ao salvar cidade [%s] do estado [%s] no banco. OFFSET: [%d], erro %v", c.City, c.State, nextOffset, err)
-	// 	}
-	// 	log.Printf("saved city [%s] of state [%s]\n", c.City, c.State)
-	// }
-	// var cities []string
-	// for key := range citiesMap {
-	// 	cities = append(cities, key)
-	// }
-	// stateToSave := &descritor.Location{
-	// 	State:  state,
-	// 	Cities: cities,
-	// }
-	// stateKey := datastore.NameKey(descritor.LocationsCollection, state, nil)
-	// if _, err := datastoreClient.Put(context.Background(), stateKey, stateToSave); err != nil {
-	// 	return fmt.Errorf("falha ao salvar estado [%s] na coleção de estado.OFFSET: [%d], erro %q", state, nextOffset, err)
-	// }
-	// return nil
+	var cities []string
+	for city := range citiesMap {
+		cities = append(cities, city)
+	}
+	location := &descritor.Location{
+		State:  state,
+		Cities: cities,
+	}
+	if _, err := dbClient.SaveLocation(location); err != nil {
+		return fmt.Errorf("falha ao salvar local de votação no banco. OFFSET: [%d], erro %v", nextOffset, err)
+	}
 	return nil
 }
 
