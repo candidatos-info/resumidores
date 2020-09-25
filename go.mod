@@ -13,6 +13,7 @@ require (
 	github.com/kr/text v0.2.0 // indirect
 	github.com/matryer/is v1.4.0
 	github.com/niemeyer/pretty v0.0.0-20200227124842-a10e7caefd8e // indirect
+	go.mongodb.org/mongo-driver v1.4.1 // indirect
 	golang.org/x/net v0.0.0-20200923182212-328152dc79b1 // indirect
 	golang.org/x/oauth2 v0.0.0-20200902213428-5d25da1a8d43
 	golang.org/x/sys v0.0.0-20200923182605-d9f96fdee20d // indirect
