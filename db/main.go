@@ -234,6 +234,7 @@ func pathResolverToCandidature(pathResolver *pathResolver, googleDriveService *d
 		Year:                int(candidature.Legislatura),
 		City:                candidature.Municipio,
 		State:               candidature.UF,
+		LegalCode:           candidature.Candidato.CPF,
 	}, nil
 }
 
