@@ -3,9 +3,10 @@ module github.com/candidatos-info/resumidores
 go 1.14
 
 require (
-	cloud.google.com/go v0.66.0 // indirect
 	cloud.google.com/go/datastore v1.3.0
-	github.com/candidatos-info/descritor v0.0.0-20200924122102-5bb12ef849a4
+	github.com/candidatos-info/descritor v0.0.0-20200930152644-12b454c3c369
+	github.com/candidatos-info/enriquecedores v0.0.0-20200919182759-6275e26522b6
+	github.com/gobeam/mongo-go-pagination v0.0.2
 
 	github.com/gocarina/gocsv v0.0.0-20200827134620-49f5c3fa2b3e
 	github.com/golang/protobuf v1.4.2
