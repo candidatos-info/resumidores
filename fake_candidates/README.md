@@ -22,13 +22,14 @@ OBS: Esse resumidor irá salvar o sequencial_candidate com o caractere '@' na fr
 Para remover candidatos de teste use o seguinte comando:
 
 ```
-$ go run *.go -emailToRemove=${EMAIL_TO_REMOVE} -dbName=${DB_NAME} -dbURL=${DB_URL}
+$ go run *.go -emailToRemove=${EMAIL_TO_REMOVE} -dbName=${DB_NAME} -dbURL=${DB_URL} -year=${YEAR}
 ```
 
 Onde:
 + EMAIL_TO_REMOVE é o email para ser removido.
 + DB_NAME é o nome do banco de dados;
 + DB_URL é a URL de conexão com o banco;
++ YEAR ano da eleição para remover;
 
 Um exemplo concreto da execução desse comando é o seguinte:
 
