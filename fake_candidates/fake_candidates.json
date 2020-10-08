@@ -1,0 +1,38 @@
+[
+    {
+        "name": "Aurelio Buarque de Miranda Filho",
+        "ballot_name": "lelinho",
+        "ballot_number": 51,
+        "sequencial_candidate": "50569",
+        "photo_url": "https://drive.google.com/uc?id=14ETBXtklZornNdlcglQOoghbp3aEi76e&export=download",
+        "legal_code": "79507853065",
+        "party": "NOVO",
+        "email": "ABUARQUEMF@GMAIL.COM",
+        "role": "prefeito",
+        "state": "AL",
+        "city": "MACEIÓ",
+        "year": 2020,
+        "gender": "MASCULINO",
+        "biography": "Nasceu e mora em maceió",
+        "contacts": [
+            {
+                "social_network": "instagram",
+                "value": "abuarque"
+            },
+            {
+                "social_network": "phone",
+                "value": "82996102143"
+            }
+        ],
+        "proposals": [
+            {
+                "topic": "LGBT",
+                "description": "Vou ajudar a comunidade"
+            },
+            {
+                "topic": "Educação",
+                "description": "so vai ter Einstein aqui em mcz"
+            }
+        ]
+    }
+]
