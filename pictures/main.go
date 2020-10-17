@@ -15,8 +15,8 @@ import (
 )
 
 type referencesSchema struct {
-	GoogleDriveID string `csv:"google_drive_id"`
-	SequencialID  string `csv:"tse_sequencial_id"`
+	PictureURI   string `csv:"picture_uri"`
+	SequentialID string `csv:"tse_sequencial_id"`
 }
 
 func main() {
@@ -66,22 +66,21 @@ func process(c *Client, picturesReferences string, year, offset int) error {
 		return fmt.Errorf("falha ao inflar slice de referências de fotos usando arquivo csv [%s]. OFFSET: [%d], erro %v", picturesReferences, nextOffset, err)
 	}
 	sort.Slice(refs, func(i, j int) bool { // sorting list using sequencial ID gotten from local path
-		prevIndex, err := strconv.Atoi(refs[i].SequencialID)
+		prevIndex, err := strconv.Atoi(refs[i].SequentialID)
 		if err != nil {
-			log.Fatalf("falha ao converter o sequencial ID [%s] para inteiro, erro %v", refs[i].SequencialID, err)
+			log.Fatalf("falha ao converter o sequencial ID [%s] para inteiro, erro %v", refs[i].SequentialID, err)
 		}
-		nextIndex, err := strconv.Atoi(refs[j].SequencialID)
+		nextIndex, err := strconv.Atoi(refs[j].SequentialID)
 		if err != nil {
-			log.Fatalf("falha ao converter o sequencial ID [%s] para inteiro, erro %v", refs[j].SequencialID, err)
+			log.Fatalf("falha ao converter o sequencial ID [%s] para inteiro, erro %v", refs[j].SequentialID, err)
 		}
 		return prevIndex < nextIndex
 	})
 	for _, pictureReference := range refs[offset:] {
-		pictureURL := fmt.Sprintf("https://drive.google.com/uc?id=%s&export=download", pictureReference.GoogleDriveID)
-		if err := c.UpdateCandidate(year, pictureReference.SequencialID, pictureURL); err != nil {
-			return fmt.Errorf("falha ao salvar foto do candidato [%s]. OFFSET: [%d], erro %v", pictureReference.SequencialID, nextOffset, err)
+		if err := c.UpdateCandidate(year, pictureReference.SequentialID, pictureReference.PictureURI); err != nil {
+			return fmt.Errorf("falha ao salvar foto do candidato [%s]. OFFSET: [%d], erro %v", pictureReference.SequentialID, nextOffset, err)
 		}
-		log.Printf("changed picture of candidate [%s]\n", pictureReference.SequencialID)
+		log.Printf("changed picture of candidate [%s]\n", pictureReference.SequentialID)
 		nextOffset++
 	}
 	return nil
